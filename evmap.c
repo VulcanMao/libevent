@@ -290,6 +290,8 @@ evmap_io_add_(struct event_base *base, evutil_socket_t fd, struct event *ev)
 			return (-1);
 	}
 #endif
+    //获取fd对应的event_map_entry结构体,保存在ctx中
+    //流程: 1. 计算hash(fd),在数组中找到位置  2. 遍历链表,找到对应的event_map_entry
 	GET_IO_SLOT_AND_CTOR(ctx, io, fd, evmap_io, evmap_io_init,
 						 evsel->fdinfo_len);
 
@@ -343,6 +345,7 @@ evmap_io_add_(struct event_base *base, evutil_socket_t fd, struct event *ev)
 	ctx->nread = (ev_uint16_t) nread;
 	ctx->nwrite = (ev_uint16_t) nwrite;
 	ctx->nclose = (ev_uint16_t) nclose;
+    //把ev放入event_map_entry的event_list链表中
 	LIST_INSERT_HEAD(&ctx->events, ev, ev_io_next);
 
 	return (retval);
