@@ -281,6 +281,8 @@ struct name {								\
 #define TAILQ_HEAD_INITIALIZER(head)					\
 	{ NULL, &(head).tqh_first }
 
+//和前面的TAILQ_HEAD不同,这个结构体没有名字,只能作为匿名结构体,
+//所以,他一般都是另外一个结构体或共用体的成员
 #define TAILQ_ENTRY(type)						\
 struct {								\
 	struct type *tqe_next;	/* next element */			\

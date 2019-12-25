@@ -612,6 +612,8 @@ event_base_new_with_config(const struct event_config *cfg)
 	event_debug_mode_too_late = 1;
 #endif
 
+	//之所以不用mm_mallco是因为mm_malloc并不会清零该内存区域,
+	//而这个函数是会清零申请到的内存区域,相当于给base初始化
 	if ((base = mm_calloc(1, sizeof(struct event_base))) == NULL) {
 		event_warn("%s: calloc", __func__);
 		return NULL;
@@ -718,9 +720,13 @@ event_base_new_with_config(const struct event_config *cfg)
 #endif
 
 #ifndef EVENT__DISABLE_THREAD_SUPPORT
+
+	//对于th_base_lock变量,目前的值为NULL, EVTHREAD_LOCKING_ENABLED宏是
+	//测试ev_thread_lock_fns.lock是否不为NULL
 	if (EVTHREAD_LOCKING_ENABLED() &&
 	    (!cfg || !(cfg->flags & EVENT_BASE_FLAG_NOLOCK))) {
 		int r;
+		//申请锁变量
 		EVTHREAD_ALLOC_LOCK(base->th_base_lock, 0);
 		EVTHREAD_ALLOC_COND(base->current_event_cond);
 		r = evthread_make_base_notifiable(base);
@@ -2488,10 +2494,12 @@ event_add(struct event *ev, const struct timeval *tv)
 		return -1;
 	}
 
+	//加锁
 	EVBASE_ACQUIRE_LOCK(ev->ev_base, th_base_lock);
 
 	res = event_add_nolock_(ev, tv, 0);
 
+	//解锁
 	EVBASE_RELEASE_LOCK(ev->ev_base, th_base_lock);
 
 	return (res);

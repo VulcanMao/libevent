@@ -102,6 +102,7 @@ evthread_set_lock_callbacks(const struct evthread_lock_callbacks *cbs)
 	}
 #endif
 
+	//参数为NULL,取消线程锁功能
 	if (!cbs) {
 		if (target->alloc)
 			event_warnx("Trying to disable lock functions after "
@@ -109,6 +110,7 @@ evthread_set_lock_callbacks(const struct evthread_lock_callbacks *cbs)
 		memset(target, 0, sizeof(evthread_lock_fns_));
 		return 0;
 	}
+	//一旦设置就不能修改,即只能设置一次
 	if (target->alloc) {
 		/* Uh oh; we already had locking callbacks set up.*/
 		if (target->lock_api_version == cbs->lock_api_version &&
@@ -124,6 +126,7 @@ evthread_set_lock_callbacks(const struct evthread_lock_callbacks *cbs)
 		    "initialized.");
 		return -1;
 	}
+	//这四个函数指针都不为NULL时才能定制成功,因为这四个函数是配套使用的
 	if (cbs->alloc && cbs->free && cbs->lock && cbs->unlock) {
 		memcpy(target, cbs, sizeof(evthread_lock_fns_));
 		return event_global_setup_locks_(1);
@@ -183,12 +186,12 @@ evthread_set_condition_callbacks(const struct evthread_condition_callbacks *cbs)
 
 struct debug_lock {
 	unsigned signature;
-	unsigned locktype;
-	unsigned long held_by;
+	unsigned locktype;			//锁的类型
+	unsigned long held_by;		//记录这个锁是被那个线程所拥有
 	/* XXXX if we ever use read-write locks, we will need a separate
 	 * lock to protect count. */
-	int count;
-	void *lock;
+	int count;					//记录这个锁的加锁次数
+	void *lock;					//锁类型,在pthreads下是pthread_mutex_t * 类型
 };
 
 static void *
@@ -197,7 +200,10 @@ debug_lock_alloc(unsigned locktype)
 	struct debug_lock *result = mm_malloc(sizeof(struct debug_lock));
 	if (!result)
 		return NULL;
+
+	//用户设置过自己的线程锁函数
 	if (original_lock_fns_.alloc) {
+		//用用户定制的线程锁函数分配一个线程锁
 		if (!(result->lock = original_lock_fns_.alloc(
 				locktype|EVTHREAD_LOCKTYPE_RECURSIVE))) {
 			mm_free(result);
@@ -234,15 +240,16 @@ static void
 evthread_debug_lock_mark_locked(unsigned mode, struct debug_lock *lock)
 {
 	EVUTIL_ASSERT(DEBUG_LOCK_SIG == lock->signature);
+	//增加锁的加锁次数,解锁时会减一
 	++lock->count;
 	if (!(lock->locktype & EVTHREAD_LOCKTYPE_RECURSIVE))
 		EVUTIL_ASSERT(lock->count == 1);
 	if (evthread_id_fn_) {
 		unsigned long me;
-		me = evthread_id_fn_();
+		me = evthread_id_fn_();		//获取线程ID
 		if (lock->count > 1)
 			EVUTIL_ASSERT(lock->held_by == me);
-		lock->held_by = me;
+		lock->held_by = me;			//记录这个锁是被哪个线程所拥有
 	}
 }
 
@@ -257,7 +264,9 @@ debug_lock_lock(unsigned mode, void *lock_)
 		EVUTIL_ASSERT((mode & (EVTHREAD_READ|EVTHREAD_WRITE)) == 0);
 	if (original_lock_fns_.lock)
 		res = original_lock_fns_.lock(mode, lock->lock);
+	//lock 成功返回0,失败返回非0
 	if (!res) {
+		//记录这个锁的使用情况
 		evthread_debug_lock_mark_locked(mode, lock);
 	}
 	return res;
@@ -274,11 +283,12 @@ evthread_debug_lock_mark_unlocked(unsigned mode, struct debug_lock *lock)
 	if (evthread_id_fn_) {
 		unsigned long me;
 		me = evthread_id_fn_();
+		//检测锁的拥有者是否为要解锁的线程
 		EVUTIL_ASSERT(lock->held_by == me);
 		if (lock->count == 1)
 			lock->held_by = 0;
 	}
-	--lock->count;
+	--lock->count;		//减少被加锁次数
 	EVUTIL_ASSERT(lock->count >= 0);
 }
 
@@ -287,6 +297,7 @@ debug_lock_unlock(unsigned mode, void *lock_)
 {
 	struct debug_lock *lock = lock_;
 	int res = 0;
+	//先检测
 	evthread_debug_lock_mark_unlocked(mode, lock);
 	if (original_lock_fns_.unlock)
 		res = original_lock_fns_.unlock(mode, lock->lock);
@@ -327,8 +338,12 @@ evthread_enable_lock_debugging(void)
 	};
 	if (evthread_lock_debugging_enabled_)
 		return;
+
+	//把当前用户定制的锁操作复制到original_lock_fns_结构体变量中
 	memcpy(&original_lock_fns_, &evthread_lock_fns_,
 	    sizeof(struct evthread_lock_callbacks));
+	
+	//将当前的锁操作设置为调试锁操作,但调试锁操作内部还是使用original_lock_fins_的锁操作函数
 	memcpy(&evthread_lock_fns_, &cbs,
 	    sizeof(struct evthread_lock_callbacks));
 
