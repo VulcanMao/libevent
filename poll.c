@@ -166,10 +166,12 @@ poll_dispatch(struct event_base *base, struct timeval *tv)
 			msec = INT_MAX;
 	}
 
+	//解锁,外部加锁了
 	EVBASE_RELEASE_LOCK(base, th_base_lock);
 
 	res = poll(event_set, nfds, msec);
 
+	//加锁,外部会解锁
 	EVBASE_ACQUIRE_LOCK(base, th_base_lock);
 
 	if (res == -1) {
@@ -198,6 +200,8 @@ poll_dispatch(struct event_base *base, struct timeval *tv)
 		res = 0;
 
 		/* If the file gets closed notify */
+		//如果fd发生错误,就把之当做读和写事件,之后调用read或write时,
+		//就能得知具体是什么错误了,这里的作用是通知上层
 		if (what & (POLLHUP|POLLERR|POLLNVAL))
 			what |= POLLIN|POLLOUT;
 		if (what & POLLIN)
@@ -207,6 +211,7 @@ poll_dispatch(struct event_base *base, struct timeval *tv)
 		if (res == 0)
 			continue;
 
+		//把这个ev放到激活队列中
 		evmap_io_active_(base, event_set[i].fd, res);
 	}
 

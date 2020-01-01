@@ -162,13 +162,14 @@ struct event_signal_map {
  **/
 struct common_timeout_list {
 	/* List of events currently waiting in the queue. */
+	//超时event队列,将所有具有相同超时时长的超时event放到一个队列里
 	struct event_list events;
 	/* 'magic' timeval used to indicate the duration of events in this
 	 * queue. */
-	struct timeval duration;
+	struct timeval duration;	//超时时长
 	/* Event that triggers whenever one of the events in the queue is
 	 * ready to activate */
-	struct event timeout_event;
+	struct event timeout_event;	//具有相同超时时长的event的代表
 	/* The event_base that this timeout list is part of */
 	struct event_base *base;
 };
@@ -272,10 +273,14 @@ struct event_base {
 
 	/** An array of common_timeout_list* for all of the common timeout
 	 * values we know. */
+	//因为可以有多个不同时长的超时event组,故用数组
+	//因为数组元素common_timeout_liset指针,所以用二级指针
 	struct common_timeout_list **common_timeout_queues;
 	/** The number of entries used in common_timeout_queues */
+	//数组元素个数
 	int n_common_timeouts;
 	/** The total size of common_timeout_queues. */
+	//已分配的数组元素个数
 	int n_common_timeouts_allocated;
 
 	/** Mapping from file descriptors to enabled (added) events */
@@ -329,14 +334,16 @@ struct event_base {
 	/* Notify main thread to wake up break, etc. */
 	/** True if the base already has a pending notify, and we don't need
 	 * to add any more. */
+	//event_base是否处于通知的未决状态,即次线程已经通知了,但主线程还没处理这个通知
 	int is_notify_pending;
 	/** A socketpair used by some th_notify functions to wake up the main
 	 * thread. */
-	evutil_socket_t th_notify_fd[2];
+	evutil_socket_t th_notify_fd[2];		//通信管道
 	/** An event used by some th_notify functions to wake up the main
 	 * thread. */
-	struct event th_notify;
+	struct event th_notify;		//用于监听th_notify_fd的读端
 	/** A function used to wake up the main thread from another thread. */
+	//有两个可供选择的通知函数,指向其中一个通知函数
 	int (*th_notify_fn)(struct event_base *base);
 
 	/** Saved seed for weak random number generator. Some backends use

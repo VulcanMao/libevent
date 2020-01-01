@@ -306,6 +306,8 @@ evmap_io_add_(struct event_base *base, evutil_socket_t fd, struct event *ev)
 	if (nclose)
 		old |= EV_CLOSED;
 
+	//记录是不是第一次,如果是第一次,那么说明该fd还没被加入到多路IO复用中
+	//那么就要加入
 	if (ev->ev_events & EV_READ) {
 		if (++nread == 1)
 			res |= EV_READ;
@@ -331,6 +333,7 @@ evmap_io_add_(struct event_base *base, evutil_socket_t fd, struct event *ev)
 		return -1;
 	}
 
+	//将fd加入到多路IO复用中
 	if (res) {
 		void *extra = ((char*)ctx) + sizeof(struct evmap_io);
 		/* XXX(niels): we cannot mix edge-triggered and
@@ -342,6 +345,7 @@ evmap_io_add_(struct event_base *base, evutil_socket_t fd, struct event *ev)
 		retval = 1;
 	}
 
+	//nread进行了++, 把次数记录下来.下次对于同一个fd,这个次数就有用了
 	ctx->nread = (ev_uint16_t) nread;
 	ctx->nwrite = (ev_uint16_t) nwrite;
 	ctx->nclose = (ev_uint16_t) nclose;
@@ -430,10 +434,12 @@ evmap_io_active_(struct event_base *base, evutil_socket_t fd, short events)
 	if (fd < 0 || fd >= io->nentries)
 		return;
 #endif
+	//找到对应的event_map_entry的TAILQ_HEAD
 	GET_IO_SLOT(ctx, io, fd, evmap_io);
 
 	if (NULL == ctx)
 		return;
+	//遍历队列,将所有与fd相关联的event结构体都处理一遍
 	LIST_FOREACH(ev, &ctx->events, ev_io_next) {
 		if (ev->ev_events & events)
 			event_active_nolock_(ev, ev->ev_events & events, 1);
@@ -468,6 +474,7 @@ evmap_signal_add_(struct event_base *base, int sig, struct event *ev)
 	    base->evsigsel->fdinfo_len);
 
 	if (LIST_EMPTY(&ctx->events)) {
+		//实际调用的是evsig_add函数
 		if (evsel->add(base, ev->ev_fd, 0, EV_SIGNAL, NULL)
 		    == -1)
 			return (-1);
@@ -500,6 +507,7 @@ evmap_signal_del_(struct event_base *base, int sig, struct event *ev)
 	return (1);
 }
 
+//后两个参数分别是信号值和发生的次数
 void
 evmap_signal_active_(struct event_base *base, evutil_socket_t sig, int ncalls)
 {
@@ -509,10 +517,13 @@ evmap_signal_active_(struct event_base *base, evutil_socket_t sig, int ncalls)
 
 	if (sig < 0 || sig >= map->nentries)
 		return;
+
+	//通过这个fd找到对应的TAILQ_HEAD
 	GET_SIGNAL_SLOT(ctx, map, sig, evmap_signal);
 
 	if (!ctx)
 		return;
+	//遍历该fd的队列
 	LIST_FOREACH(ev, &ctx->events, ev_signal_next)
 		event_active_nolock_(ev, EV_SIGNAL, ncalls);
 }

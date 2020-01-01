@@ -135,6 +135,7 @@ evsig_cb(evutil_socket_t fd, short what, void *arg)
 	static char signals[1024];
 	ev_ssize_t n;
 	int i;
+	//NSIG是信号个数
 	int ncaught[NSIG];
 	struct event_base *base;
 
@@ -143,6 +144,9 @@ evsig_cb(evutil_socket_t fd, short what, void *arg)
 	memset(&ncaught, 0, sizeof(ncaught));
 
 	while (1) {
+		//读取sockerpair中的数据,从中可以知道有哪些信号发生,
+		//socketpair的读端已经设置为非阻塞的,所以不会被阻塞在recv
+		//函数中,这个循环要把socketpair的所有数据都读取出来
 #ifdef _WIN32
 		n = recv(fd, signals, sizeof(signals), 0);
 #else
@@ -157,15 +161,17 @@ evsig_cb(evutil_socket_t fd, short what, void *arg)
 			/* XXX warn? */
 			break;
 		}
+		//遍历数据数组,把每一个字节当做一个信号
 		for (i = 0; i < n; ++i) {
 			ev_uint8_t sig = signals[i];
 			if (sig < NSIG)
-				ncaught[sig]++;
+				ncaught[sig]++;		//该信号发生的次数
 		}
 	}
 
 	EVBASE_ACQUIRE_LOCK(base, th_base_lock);
 	for (i = 0; i < NSIG; ++i) {
+		//有信号发生就为之调用evmap_signal_active_
 		if (ncaught[i])
 			evmap_signal_active_(base, i, ncaught[i]);
 	}
@@ -197,10 +203,13 @@ evsig_init_(struct event_base *base)
 	base->sig.sh_old = NULL;
 	base->sig.sh_old_max = 0;
 
+	//将ev_signal_pair[1]与ev_signal这个event相关联. ev_signal_pair[1]为读端
 	event_assign(&base->sig.ev_signal, base, base->sig.ev_signal_pair[0],
 		EV_READ | EV_PERSIST, evsig_cb, base);
 
+	//标明是内部使用的
 	base->sig.ev_signal.ev_flags |= EVLIST_INTERNAL;
+	//设置优先级(最高优先级)
 	event_priority_set(&base->sig.ev_signal, 0);
 
 	base->evsigsel = &evsigops;
@@ -270,6 +279,7 @@ evsig_set_handler_(struct event_base *base,
 		sig->sh_old[evsignal] = NULL;
 		return (-1);
 	}
+	//保存之前的信号捕捉函数,当用户event_del这个信号监听后,就可以恢复了
 	*sig->sh_old[evsignal] = sh;
 #endif
 
@@ -282,10 +292,12 @@ evsig_add(struct event_base *base, evutil_socket_t evsignal, short old, short ev
 	struct evsig_info *sig = &base->sig;
 	(void)p;
 
+	//NSIG是信号的个数,定义在系统头文件中
 	EVUTIL_ASSERT(evsignal >= 0 && evsignal < NSIG);
 
 	/* catch signals if they happen quickly */
 	EVSIGBASE_LOCK();
+	//如果有多个event_base,那么捕捉信号的工作只能由其中一个完成
 	if (evsig_base != base && evsig_base_n_signals_added) {
 		event_warnx("Added a signal to event base %p with signals "
 		    "already added to event_base %p.  Only one can have "
@@ -301,12 +313,14 @@ evsig_add(struct event_base *base, evutil_socket_t evsignal, short old, short ev
 	EVSIGBASE_UNLOCK();
 
 	event_debug(("%s: %d: changing signal handler", __func__, (int)evsignal));
+	//设置libevent的信号捕捉函数
 	if (evsig_set_handler_(base, (int)evsignal, evsig_handler) == -1) {
 		goto err;
 	}
 
 
 	if (!sig->ev_signal_added) {
+		//添加一个内部的event
 		if (event_add_nolock_(&sig->ev_signal, NULL, 0))
 			goto err;
 		sig->ev_signal_added = 1;
@@ -392,6 +406,7 @@ evsig_handler(int sig)
 	}
 
 #ifndef EVENT__HAVE_SIGACTION
+	//这里主要是为了应对旧时代的信号不可靠,现在的os并不会出现这个问题
 	signal(sig, evsig_handler);
 #endif
 
